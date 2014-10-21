@@ -95,6 +95,7 @@ namespace WebSocketSharp
     private WsStream                _stream;
     private TcpClient               _tcpClient;
     private Uri                     _uri;
+    private NameValueCollection     _customHeaders;
 
     #endregion
 
@@ -901,6 +902,10 @@ namespace WebSocketSharp
       if (_cookies.Count > 0)
         req.SetCookies (_cookies);
 
+      foreach (var key in _customHeaders.AllKeys){
+        headers [key] = _customHeaders [key];
+      }
+
       return req;
     }
 
@@ -920,6 +925,10 @@ namespace WebSocketSharp
 
       if (_cookies.Count > 0)
         res.SetCookies (_cookies);
+
+      foreach (var key in _customHeaders.AllKeys){
+        headers [key] = _customHeaders [key];
+      }
 
       return res;
     }
@@ -972,6 +981,7 @@ namespace WebSocketSharp
       _forSend = new object ();
       _protocol = String.Empty;
       _readyState = WebSocketState.CONNECTING;
+      _customHeaders = new NameValueCollection();
     }
 
     private void open ()
@@ -2145,6 +2155,18 @@ namespace WebSocketSharp
           username, password, _uri.PathAndQuery);
 
         _preAuth = preAuth;
+      }
+    }
+
+    /// <summary>
+    /// custom http request/response headers.
+    /// </summary>
+    public NameValueCollection CustomHeaders {
+      get {
+        return _customHeaders;
+      }
+      protected set {
+        _customHeaders = value;
       }
     }
 
