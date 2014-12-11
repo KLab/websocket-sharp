@@ -90,7 +90,6 @@ namespace WebSocketSharp
     private string                  _protocol;
     private string []               _protocols;
     private volatile WebSocketState _readyState;
-    private AutoResetEvent          _receivePong;
     private bool                    _secure;
     private WsStream                _stream;
     private TcpClient               _tcpClient;
@@ -264,7 +263,22 @@ namespace WebSocketSharp
     /// </value>
     public bool IsAlive {
       get {
-        return Ping ();
+        AutoResetEvent receivePong = new AutoResetEvent (false);
+
+        EventHandler SignalEmitter = (object sender, EventArgs e) => {
+          receivePong.Set ();
+        };
+
+        OnPong += SignalEmitter;
+
+        Ping ();
+        bool isAlive = receivePong.WaitOne (_client ? 5000 : 1000);
+
+        OnPong -= SignalEmitter;
+
+        receivePong.Close ();
+
+        return isAlive;
       }
     }
 
@@ -454,6 +468,11 @@ namespace WebSocketSharp
     /// </summary>
     public EventHandler OnOpen;
 
+    /// <summary>
+    /// Occurs when Pong frame has been received.
+    /// </summary>
+    public EventHandler OnPong;
+
     #endregion
 
     #region Private Methods
@@ -596,7 +615,7 @@ namespace WebSocketSharp
 
     private bool acceptPongFrame (WsFrame frame)
     {
-      _receivePong.Set ();
+      OnPong.Emit (this, EventArgs.Empty);
       _logger.Trace ("Received a Pong.");
 
       return true;
@@ -755,10 +774,6 @@ namespace WebSocketSharp
                      (sent && _exitReceiving != null && _exitReceiving.WaitOne (timeOut));
 
       release ();
-      if (_receivePong != null) {
-        _receivePong.Close ();
-        _receivePong = null;
-      }
 
       if (_exitReceiving != null) {
         _exitReceiving.Close ();
@@ -1286,7 +1301,6 @@ namespace WebSocketSharp
     private void startReceiving ()
     {
       _exitReceiving = new AutoResetEvent (false);
-      _receivePong = new AutoResetEvent (false);
 
       Action receive = null;
       receive = () => _stream.ReadFrameAsync (
@@ -1438,9 +1452,9 @@ namespace WebSocketSharp
       return Convert.ToBase64String (src);
     }
 
-    internal bool Ping (byte [] frame, int millisecondsTimeout)
+    internal bool Ping (byte [] frame)
     {
-      return send (frame) && _receivePong.WaitOne (millisecondsTimeout);
+      return send (frame);
     }
 
     // As server, used to broadcast
@@ -1812,14 +1826,14 @@ namespace WebSocketSharp
     /// Sends a Ping using the WebSocket connection.
     /// </summary>
     /// <returns>
-    /// <c>true</c> if the <see cref="WebSocket"/> instance receives the Pong to
-    /// this Ping in a time; otherwise, <c>false</c>.
+    /// <c>true</c> if the <see cref="WebSocket"/> instance succeeded to send Ping frame;
+    ///  otherwise, <c>false</c>.
     /// </returns>
     public bool Ping ()
     {
       return _client
-             ? Ping (WsFrame.CreatePingFrame (Mask.MASK).ToByteArray (), 5000)
-             : Ping (WsFrame.EmptyUnmaskPingData, 1000);
+             ? Ping (WsFrame.CreatePingFrame (Mask.MASK).ToByteArray ())
+             : Ping (WsFrame.EmptyUnmaskPingData);
     }
 
     /// <summary>
@@ -1827,8 +1841,8 @@ namespace WebSocketSharp
     /// WebSocket connection.
     /// </summary>
     /// <returns>
-    /// <c>true</c> if the <see cref="WebSocket"/> instance receives the Pong to
-    /// this Ping in a time; otherwise, <c>false</c>.
+    /// <c>true</c> if the <see cref="WebSocket"/> instance succeeded to send Ping frame;
+    ///  otherwise, <c>false</c>.
     /// </returns>
     /// <param name="message">
     /// A <see cref="string"/> that represents the message to send.
@@ -1848,8 +1862,8 @@ namespace WebSocketSharp
       }
 
       return _client
-             ? Ping (WsFrame.CreatePingFrame (Mask.MASK, data).ToByteArray (), 5000)
-             : Ping (WsFrame.CreatePingFrame (Mask.UNMASK, data).ToByteArray (), 1000);
+             ? Ping (WsFrame.CreatePingFrame (Mask.MASK, data).ToByteArray ())
+             : Ping (WsFrame.CreatePingFrame (Mask.UNMASK, data).ToByteArray ());
     }
 
     /// <summary>
