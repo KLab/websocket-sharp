@@ -78,7 +78,6 @@
     <Compile Include="Net\HttpBasicIdentity.cs" />
     <Compile Include="Net\HttpDigestIdentity.cs" />
     <Compile Include="Net\NetworkCredential.cs" />
-    <Compile Include="RttMeasure.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <ItemGroup>

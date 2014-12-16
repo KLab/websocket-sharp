@@ -83,17 +83,16 @@ namespace WebSocketSharp
     private AutoResetEvent          _exitReceiving;
     private object                  _forConn;
     private object                  _forSend;
+    private long                    _lastPingTimestamp;
     private volatile Logger         _logger;
     private uint                    _nonceCount;
-    private EventHandler            _onPong;
     private string                  _origin;
-    private object                  _pingLocker;
-    private bool                    _pingSendable;
+    private Timer                   _pingSender;
     private bool                    _preAuth;
     private string                  _protocol;
     private string []               _protocols;
     private volatile WebSocketState _readyState;
-    private RttMeasure              _rttMeasure;
+    private long                    _rtt;
     private bool                    _secure;
     private WsStream                _stream;
     private TcpClient               _tcpClient;
@@ -437,18 +436,6 @@ namespace WebSocketSharp
     }
 
     /// <summary>
-    /// Gets a value indicating whether the WebSocket connection is client.
-    /// </summary>
-    /// <value>
-    /// <c>true</c> if the connection is client; otherwise, <c>false</c>.
-    /// </value>
-    public bool Client {
-      get {
-        return _client;
-      }
-    }
-
-    /// <summary>
     /// Gets the WebSocket RTT.
     /// </summary>
     /// <value>
@@ -457,7 +444,7 @@ namespace WebSocketSharp
     /// </value>
     public long Rtt {
       get {
-        return _rttMeasure.Rtt;
+        return _rtt;
       }
     }
 
@@ -484,11 +471,6 @@ namespace WebSocketSharp
     /// Occurs when the WebSocket connection has been established.
     /// </summary>
     public EventHandler OnOpen;
-
-    /// <summary>
-    /// Occurs when Pong frame has been received.
-    /// </summary>
-    public EventHandler OnPong;
 
     #endregion
 
@@ -634,8 +616,14 @@ namespace WebSocketSharp
     {
       _logger.Trace ("Received a Pong.");
 
-      _pingSendable = true;
-      _onPong.Emit (this, EventArgs.Empty);
+      _rtt = DateTime.Now.Ticks / 10000 - _lastPingTimestamp;
+
+      if (_pingSender != null)
+        _pingSender.Dispose ();
+
+      _pingSender = new Timer((object o) => {
+        Ping ();
+      }, null, 5000, Timeout.Infinite);
 
       return true;
     }
@@ -757,8 +745,8 @@ namespace WebSocketSharp
 
       _readyState = WebSocketState.CLOSED;
       try {
-        _rttMeasure.Stop ();
-        _pingSendable = true;
+        if (_pingSender != null)
+          _pingSender.Dispose ();
         OnClose.Emit (this, args);
       }
       catch (Exception ex) {
@@ -1018,7 +1006,6 @@ namespace WebSocketSharp
       _protocol = String.Empty;
       _readyState = WebSocketState.CONNECTING;
       _customHeaders = new NameValueCollection();
-      _pingLocker = new object();
     }
 
     private void open ()
@@ -1027,10 +1014,7 @@ namespace WebSocketSharp
         OnOpen.Emit (this, EventArgs.Empty);
         if (_readyState == WebSocketState.OPEN) {
           startReceiving ();
-
-          _pingSendable = true;
-          _rttMeasure = new RttMeasure(this);
-          _rttMeasure.Start ();
+          Ping ();
         }
       }
       catch (Exception ex) {
@@ -1437,8 +1421,8 @@ namespace WebSocketSharp
 
       _readyState = WebSocketState.CLOSED;
       try {
-        _rttMeasure.Stop ();
-        _pingSendable = true;
+        if (_pingSender != null)
+          _pingSender.Dispose ();
         OnClose.Emit (this, args);
       }
       catch (Exception ex) {
@@ -1481,23 +1465,12 @@ namespace WebSocketSharp
       return Convert.ToBase64String (src);
     }
 
-    internal bool Ping (byte [] frame, EventHandler onPong)
+    internal bool Ping ()
     {
-      bool success = false;
-
-      lock (_pingLocker) {
-        if (_pingSendable) {
-          _onPong = onPong;
-          success = send (frame);
-        }
-      }
-
-      if (success) {
-        _pingSendable = false;
-        return true;
-      }
-
-      return false;
+      _lastPingTimestamp = DateTime.Now.Ticks / 10000; // Millseconds
+      return _client
+             ? send (WsFrame.CreatePingFrame (Mask.MASK).ToByteArray ())
+             : send (WsFrame.EmptyUnmaskPingData);
     }
 
     // As server, used to broadcast
@@ -1863,50 +1836,6 @@ namespace WebSocketSharp
     public void Dispose ()
     {
       Close (CloseStatusCode.AWAY, null);
-    }
-
-    /// <summary>
-    /// Sends a Ping using the WebSocket connection.
-    /// </summary>
-    /// <returns>
-    /// <c>true</c> if the <see cref="WebSocket"/> instance succeeded to send Ping frame;
-    ///  otherwise, <c>false</c>.
-    /// </returns>
-    public bool Ping ()
-    {
-      return _client
-             ? Ping (WsFrame.CreatePingFrame (Mask.MASK).ToByteArray (), OnPong)
-             : Ping (WsFrame.EmptyUnmaskPingData, OnPong);
-    }
-
-    /// <summary>
-    /// Sends a Ping with the specified <paramref name="message"/> using the
-    /// WebSocket connection.
-    /// </summary>
-    /// <returns>
-    /// <c>true</c> if the <see cref="WebSocket"/> instance succeeded to send Ping frame;
-    ///  otherwise, <c>false</c>.
-    /// </returns>
-    /// <param name="message">
-    /// A <see cref="string"/> that represents the message to send.
-    /// </param>
-    public bool Ping (string message)
-    {
-      if (message == null || message.Length == 0)
-        return Ping ();
-
-      var data = Encoding.UTF8.GetBytes (message);
-      var msg = data.CheckIfValidControlData ("message");
-      if (msg != null) {
-        _logger.Error (msg);
-        error (msg);
-
-        return false;
-      }
-
-      return _client
-             ? Ping (WsFrame.CreatePingFrame (Mask.MASK, data).ToByteArray (), OnPong)
-             : Ping (WsFrame.CreatePingFrame (Mask.UNMASK, data).ToByteArray (), OnPong);
     }
 
     /// <summary>
