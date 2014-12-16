@@ -93,6 +93,7 @@ namespace WebSocketSharp
     private string []               _protocols;
     private volatile WebSocketState _readyState;
     private long                    _rtt;
+    private long                    _rttLastModifiedAt;
     private bool                    _secure;
     private WsStream                _stream;
     private TcpClient               _tcpClient;
@@ -104,6 +105,7 @@ namespace WebSocketSharp
     #region Internal Const Fields
 
     internal const int FragmentLength = 1016; // Max value is int.MaxValue - 14.
+    internal const int PingInterval = 5000;
 
     #endregion
 
@@ -266,9 +268,13 @@ namespace WebSocketSharp
     /// </value>
     public bool IsAlive {
       get {
-        if (Rtt < (_client ? 5000 : 1000)) {
+        long elapse = DateTime.Now.Ticks / 10000 - _rttLastModifiedAt;
+        if (elapse > (_client ? PingInterval + 5000 : PingInterval + 1000))
+          return false;
+
+        if (_rtt < (_client ? 5000 : 1000))
           return true;
-        }
+
         return false;
       }
     }
@@ -617,13 +623,14 @@ namespace WebSocketSharp
       _logger.Trace ("Received a Pong.");
 
       _rtt = DateTime.Now.Ticks / 10000 - _lastPingTimestamp;
+      _rttLastModifiedAt = DateTime.Now.Ticks / 10000;
 
       if (_pingSender != null)
         _pingSender.Dispose ();
 
       _pingSender = new Timer((object o) => {
         Ping ();
-      }, null, 5000, Timeout.Infinite);
+      }, null, PingInterval, Timeout.Infinite);
 
       return true;
     }
