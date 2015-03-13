@@ -67,7 +67,6 @@ namespace WebSocketSharp
 
     #region Private Fields
 
-    private AuthenticationChallenge _authChallenge;
     private string                  _base64Key;
     private RemoteCertificateValidationCallback
                                     _certValidationCallback;
@@ -75,17 +74,14 @@ namespace WebSocketSharp
     private CookieCollection        _cookies;
     private Func<CookieCollection, CookieCollection, bool>
                                     _cookiesValidation;
-    private NetworkCredential       _credentials;
     private string                  _extensions;
     private AutoResetEvent          _exitReceiving;
     private object                  _forConn;
     private object                  _forSend;
     private long                    _lastPingTimestamp;
     private volatile Logger         _logger;
-    private uint                    _nonceCount;
     private string                  _origin;
     private Timer                   _pingSender;
-    private bool                    _preAuth;
     private string                  _protocol;
     private string []               _protocols;
     private volatile WebSocketState _readyState;
@@ -227,19 +223,6 @@ namespace WebSocketSharp
           foreach (Cookie cookie in _cookies)
             yield return cookie;
         }
-      }
-    }
-
-    /// <summary>
-    /// Gets the credentials for HTTP authentication (Basic/Digest).
-    /// </summary>
-    /// <value>
-    /// A <see cref="NetworkCredential"/> that represents the credentials for
-    /// HTTP authentication. The default value is <see langword="null"/>.
-    /// </value>
-    public NetworkCredential Credentials {
-      get {
-        return _credentials;
       }
     }
 
@@ -633,9 +616,7 @@ namespace WebSocketSharp
     {
       var headers = response.Headers;
       return response.IsUnauthorized
-             ? String.Format (
-                 "HTTP {0} authorization is required.",
-                 response.AuthChallenge.Scheme)
+             ? "HTTP authorization is required."
              : !response.IsWebSocketResponse
                ? "Not WebSocket connection response."
                : !validateSecWebSocketAcceptHeader (
@@ -838,18 +819,6 @@ namespace WebSocketSharp
         headers ["Sec-WebSocket-Extensions"] = extensions;
 
       headers ["Sec-WebSocket-Version"] = _version;
-
-      AuthenticationResponse authRes = null;
-      if (_authChallenge != null && _credentials != null) {
-        authRes = new AuthenticationResponse (
-          _authChallenge, _credentials, _nonceCount);
-        _nonceCount = authRes.NonceCount;
-      }
-      else if (_preAuth)
-        authRes = new AuthenticationResponse (_credentials);
-
-      if (authRes != null)
-        headers ["Authorization"] = authRes.ToString ();
 
       if (_cookies.Count > 0)
         req.SetCookies (_cookies);
@@ -1200,23 +1169,6 @@ namespace WebSocketSharp
     {
       var req = createHandshakeRequest ();
       var res = sendHandshakeRequest (req);
-      if (res.IsUnauthorized) {
-        _authChallenge = res.AuthChallenge;
-        if (_credentials != null &&
-            (!_preAuth || _authChallenge.Scheme == "digest")) {
-          if (res.Headers.Contains ("Connection", "close")) {
-            closeClientResources ();
-            setClientStream ();
-          }
-
-          var authRes = new AuthenticationResponse (
-            _authChallenge, _credentials, _nonceCount);
-          _nonceCount = authRes.NonceCount;
-          req.Headers ["Authorization"] = authRes.ToString ();
-          res = sendHandshakeRequest (req);
-        }
-      }
-
       return res;
     }
 
@@ -1956,56 +1908,6 @@ namespace WebSocketSharp
         lock (_cookies.SyncRoot) {
           _cookies.SetOrRemove (cookie);
         }
-      }
-    }
-
-    /// <summary>
-    /// Sets a pair of the <paramref name="username"/> and
-    /// <paramref name="password"/> for HTTP authentication (Basic/Digest).
-    /// </summary>
-    /// <param name="username">
-    /// A <see cref="string"/> that represents the user name used to authenticate.
-    /// </param>
-    /// <param name="password">
-    /// A <see cref="string"/> that represents the password for
-    /// <paramref name="username"/> used to authenticate.
-    /// </param>
-    /// <param name="preAuth">
-    /// <c>true</c> if the <see cref="WebSocket"/> sends the Basic authentication
-    /// credentials with the first connection request to the server; otherwise,
-    /// <c>false</c>.
-    /// </param>
-    public void SetCredentials (string username, string password, bool preAuth)
-    {
-      lock (_forConn) {
-        var msg = checkIfAvailable ("SetCredentials", false, false);
-        if (msg == null) {
-          if (username.IsNullOrEmpty ()) {
-            _credentials = null;
-            _preAuth = false;
-            _logger.Warn ("Credentials was set back to the default.");
-
-            return;
-          }
-
-          msg = username.Contains (':') || !username.IsText ()
-              ? "'username' contains an invalid character."
-              : !password.IsNullOrEmpty () && !password.IsText ()
-                ? "'password' contains an invalid character."
-                : null;
-        }
-
-        if (msg != null) {
-          _logger.Error (msg);
-          error (msg);
-
-          return;
-        }
-
-        _credentials = new NetworkCredential (
-          username, password, _uri.PathAndQuery);
-
-        _preAuth = preAuth;
       }
     }
 
