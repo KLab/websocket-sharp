@@ -68,16 +68,6 @@ namespace WebSocketSharp
     #endregion
 
     #region Public Properties
-
-    public AuthenticationChallenge AuthChallenge {
-      get {
-        var challenge = Headers ["WWW-Authenticate"];
-        return challenge != null && challenge.Length > 0
-               ? AuthenticationChallenge.Parse (challenge)
-               : null;
-      }
-    }
-
     public CookieCollection Cookies {
       get {
         return Headers.GetCookies (true);

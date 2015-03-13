@@ -44,7 +44,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using WebSocketSharp.Net;
-using WebSocketSharp.Net.WebSockets;
+
 
 namespace WebSocketSharp
 {
@@ -67,28 +67,21 @@ namespace WebSocketSharp
 
     #region Private Fields
 
-    private AuthenticationChallenge _authChallenge;
     private string                  _base64Key;
     private RemoteCertificateValidationCallback
                                     _certValidationCallback;
-    private bool                    _client;
-    private Action                  _closeContext;
     private CompressionMethod       _compression;
-    private WebSocketContext        _context;
     private CookieCollection        _cookies;
     private Func<CookieCollection, CookieCollection, bool>
                                     _cookiesValidation;
-    private NetworkCredential       _credentials;
     private string                  _extensions;
     private AutoResetEvent          _exitReceiving;
     private object                  _forConn;
     private object                  _forSend;
     private long                    _lastPingTimestamp;
     private volatile Logger         _logger;
-    private uint                    _nonceCount;
     private string                  _origin;
     private Timer                   _pingSender;
-    private bool                    _preAuth;
     private string                  _protocol;
     private string []               _protocols;
     private volatile WebSocketState _readyState;
@@ -155,7 +148,6 @@ namespace WebSocketSharp
       }
 
       _base64Key = CreateBase64Key ();
-      _client = true;
       _logger = new Logger ();
       _secure = _uri.Scheme == "wss";
 
@@ -235,19 +227,6 @@ namespace WebSocketSharp
     }
 
     /// <summary>
-    /// Gets the credentials for HTTP authentication (Basic/Digest).
-    /// </summary>
-    /// <value>
-    /// A <see cref="NetworkCredential"/> that represents the credentials for
-    /// HTTP authentication. The default value is <see langword="null"/>.
-    /// </value>
-    public NetworkCredential Credentials {
-      get {
-        return _credentials;
-      }
-    }
-
-    /// <summary>
     /// Gets the WebSocket extensions selected by the server.
     /// </summary>
     /// <value>
@@ -269,10 +248,10 @@ namespace WebSocketSharp
     public bool IsAlive {
       get {
         long elapse = DateTime.Now.Ticks / 10000 - _rttLastModifiedAt;
-        if (elapse > (_client ? PingInterval + 5000 : PingInterval + 1000))
+        if (elapse > (PingInterval + 5000))
           return false;
 
-        if (_rtt < (_client ? 5000 : 1000))
+        if (_rtt < 5000)
           return true;
 
         return false;
@@ -523,10 +502,7 @@ namespace WebSocketSharp
       }
 
       error (msg ?? code.GetMessage ());
-      if (_readyState == WebSocketState.CONNECTING && !_client)
-        Close (HttpStatusCode.BadRequest);
-      else
-        close (code, reason ?? code.GetMessage (), false);
+      close (code, reason ?? code.GetMessage (), false);
     }
 
     private bool acceptFragmentedFrame (WsFrame frame)
@@ -577,41 +553,9 @@ namespace WebSocketSharp
                        : acceptUnsupportedFrame (frame, CloseStatusCode.POLICY_VIOLATION, null);
     }
 
-    // As server
-    private bool acceptHandshake ()
-    {
-      _logger.Debug (
-        String.Format (
-          "A WebSocket connection request from {0}:\n{1}",
-          _context.UserEndPoint,
-          _context));
-
-      var err = checkIfValidHandshakeRequest (_context);
-      if (err != null) {
-        _logger.Error (err);
-
-        error ("An error has occurred while connecting.");
-        Close (HttpStatusCode.BadRequest);
-
-        return false;
-      }
-
-      _base64Key = _context.SecWebSocketKey;
-
-      if (_protocol.Length > 0 &&
-          !_context.Headers.Contains ("Sec-WebSocket-Protocol", _protocol))
-        _protocol = String.Empty;
-
-      var extensions = _context.Headers ["Sec-WebSocket-Extensions"];
-      if (extensions != null && extensions.Length > 0)
-        processRequestedExtensions (extensions);
-
-      return send (createHandshakeResponse ());
-    }
-
     private bool acceptPingFrame (WsFrame frame)
     {
-      var mask = _client ? Mask.MASK : Mask.UNMASK;
+      var mask = Mask.MASK;
       if (send (WsFrame.CreatePongFrame (mask, frame.PayloadData)))
         _logger.Trace ("Returned a Pong.");
 
@@ -647,9 +591,7 @@ namespace WebSocketSharp
     private string checkIfAvailable (
       string operation, bool availableAsServer, bool availableAsConnected)
     {
-      return !_client && !availableAsServer
-             ? operation + " isn't available as a server."
-             : !availableAsConnected
+      return !availableAsConnected
                ? _readyState.CheckIfConnectable ()
                : null;
     }
@@ -661,9 +603,7 @@ namespace WebSocketSharp
 
     private string checkIfCanConnect ()
     {
-      return !_client && _readyState == WebSocketState.CLOSED
-             ? "Connect isn't available to reconnect as a server."
-             : _readyState.CheckIfConnectable ();
+      return _readyState.CheckIfConnectable ();
     }
 
     private string checkIfCanSend (Func<string> checkParams)
@@ -671,32 +611,12 @@ namespace WebSocketSharp
       return _readyState.CheckIfOpen () ?? checkParams ();
     }
 
-    // As server
-    private string checkIfValidHandshakeRequest (WebSocketContext context)
-    {
-      string key, version;
-      return !context.IsWebSocketRequest
-             ? "Not WebSocket connection request."
-             : !validateHostHeader (context.Host)
-               ? "Invalid Host header."
-               : (key = context.SecWebSocketKey) == null || key.Length == 0
-                 ? "Invalid Sec-WebSocket-Key header."
-                 : (version = context.SecWebSocketVersion) == null ||
-                   version != _version
-                   ? "Invalid Sec-WebSocket-Version header."
-                   : !validateCookies (context.CookieCollection, _cookies)
-                     ? "Invalid Cookies."
-                     : null;
-    }
-
     // As client
     private string checkIfValidHandshakeResponse (HandshakeResponse response)
     {
       var headers = response.Headers;
       return response.IsUnauthorized
-             ? String.Format (
-                 "HTTP {0} authorization is required.",
-                 response.AuthChallenge.Scheme)
+             ? "HTTP authorization is required."
              : !response.IsWebSocketResponse
                ? "Not WebSocket connection response."
                : !validateSecWebSocketAcceptHeader (
@@ -736,17 +656,11 @@ namespace WebSocketSharp
 
       var args = new CloseEventArgs (payload);
       args.WasClean =
-        _client
-        ? closeHandshake (
-            send ? WsFrame.CreateCloseFrame (Mask.MASK, payload).ToByteArray ()
+        closeHandshake (
+        send ? WsFrame.CreateCloseFrame (Mask.MASK, payload).ToByteArray ()
                  : null,
-            wait ? 5000 : 0,
-            closeClientResources)
-        : closeHandshake (
-            send ? WsFrame.CreateCloseFrame (Mask.UNMASK, payload).ToByteArray ()
-                 : null,
-            wait ? 1000 : 0,
-            closeServerResources);
+        wait ? 5000 : 0,
+        closeClientResources);
 
       _logger.Trace ("End closing handshake.");
 
@@ -804,18 +718,6 @@ namespace WebSocketSharp
       return result;
     }
 
-    // As server
-    private void closeServerResources ()
-    {
-      if (_closeContext == null)
-        return;
-
-      _closeContext ();
-      _closeContext = null;
-      _stream = null;
-      _context = null;
-    }
-
     private bool concatenateFragmentsInto (Stream dest)
     {
       var frame = _stream.ReadFrame ();
@@ -865,7 +767,7 @@ namespace WebSocketSharp
         }
 
         try {
-          if (_client ? doHandshake () : acceptHandshake ()) {
+          if (doHandshake ()) {
             _readyState = WebSocketState.OPEN;
             return true;
           }
@@ -917,18 +819,6 @@ namespace WebSocketSharp
         headers ["Sec-WebSocket-Extensions"] = extensions;
 
       headers ["Sec-WebSocket-Version"] = _version;
-
-      AuthenticationResponse authRes = null;
-      if (_authChallenge != null && _credentials != null) {
-        authRes = new AuthenticationResponse (
-          _authChallenge, _credentials, _nonceCount);
-        _nonceCount = authRes.NonceCount;
-      }
-      else if (_preAuth)
-        authRes = new AuthenticationResponse (_credentials);
-
-      if (authRes != null)
-        headers ["Authorization"] = authRes.ToString ();
 
       if (_cookies.Count > 0)
         req.SetCookies (_cookies);
@@ -1141,7 +1031,7 @@ namespace WebSocketSharp
             compressed = true;
           }
 
-          var mask = _client ? Mask.MASK : Mask.UNMASK;
+          var mask = Mask.MASK;
           sent = send (
             WsFrame.CreateFrame (Fin.FINAL, opcode, mask, data, compressed));
         }
@@ -1166,7 +1056,7 @@ namespace WebSocketSharp
             compressed = true;
           }
 
-          var mask = _client ? Mask.MASK : Mask.UNMASK;
+          var mask = Mask.MASK;
           sent = sendFragmented (opcode, stream, mask, compressed);
         }
         catch (Exception ex) {
@@ -1279,23 +1169,6 @@ namespace WebSocketSharp
     {
       var req = createHandshakeRequest ();
       var res = sendHandshakeRequest (req);
-      if (res.IsUnauthorized) {
-        _authChallenge = res.AuthChallenge;
-        if (_credentials != null &&
-            (!_preAuth || _authChallenge.Scheme == "digest")) {
-          if (res.Headers.Contains ("Connection", "close")) {
-            closeClientResources ();
-            setClientStream ();
-          }
-
-          var authRes = new AuthenticationResponse (
-            _authChallenge, _credentials, _nonceCount);
-          _nonceCount = authRes.NonceCount;
-          req.Headers ["Authorization"] = authRes.ToString ();
-          res = sendHandshakeRequest (req);
-        }
-      }
-
       return res;
     }
 
@@ -1391,67 +1264,6 @@ namespace WebSocketSharp
 
     #region Internal Methods
 
-    // As server
-    internal void Close (HandshakeResponse response)
-    {
-      _readyState = WebSocketState.CLOSING;
-
-      send (response);
-      closeServerResources ();
-
-      _readyState = WebSocketState.CLOSED;
-    }
-
-    // As server
-    internal void Close (HttpStatusCode code)
-    {
-      Close (createHandshakeResponse (code));
-    }
-
-    // As server
-    internal void Close (
-      CloseEventArgs args, byte [] frameAsBytes, int waitTimeOut)
-    {
-      lock (_forConn) {
-        if (_readyState == WebSocketState.CLOSING ||
-            _readyState == WebSocketState.CLOSED) {
-          _logger.Info (
-            "Closing the WebSocket connection has already been done.");
-          return;
-        }
-
-        _readyState = WebSocketState.CLOSING;
-      }
-
-      args.WasClean = closeHandshake (
-        frameAsBytes, waitTimeOut, closeServerResources);
-
-      _readyState = WebSocketState.CLOSED;
-      try {
-        if (_pingSender != null)
-          _pingSender.Dispose ();
-        OnClose.Emit (this, args);
-      }
-      catch (Exception ex) {
-        _logger.Fatal (ex.ToString ());
-      }
-    }
-
-    // As server
-    internal void ConnectAsServer ()
-    {
-      try {
-        if (acceptHandshake ()) {
-          _readyState = WebSocketState.OPEN;
-          open ();
-        }
-      }
-      catch (Exception ex) {
-        acceptException (
-          ex, "An exception has occurred while connecting.");
-      }
-    }
-
     // As client
     internal static string CreateBase64Key ()
     {
@@ -1475,9 +1287,7 @@ namespace WebSocketSharp
     internal bool Ping ()
     {
       _lastPingTimestamp = DateTime.Now.Ticks / 10000; // Millseconds
-      return _client
-             ? send (WsFrame.CreatePingFrame (Mask.MASK).ToByteArray ())
-             : send (WsFrame.EmptyUnmaskPingData);
+      return send (WsFrame.CreatePingFrame (Mask.MASK).ToByteArray ());
     }
 
     // As server, used to broadcast
@@ -1865,7 +1675,7 @@ namespace WebSocketSharp
       if (len <= FragmentLength)
         send (
           Opcode.BINARY,
-          len > 0 && _client && _compression == CompressionMethod.NONE
+          len > 0 && _compression == CompressionMethod.NONE
           ? data.Copy (len)
           : data);
       else
@@ -1944,7 +1754,7 @@ namespace WebSocketSharp
       if (len <= FragmentLength)
         sendAsync (
           Opcode.BINARY,
-          len > 0 && _client && _compression == CompressionMethod.NONE
+          len > 0 && _compression == CompressionMethod.NONE
           ? data.Copy (len)
           : data,
           completed);
@@ -2098,56 +1908,6 @@ namespace WebSocketSharp
         lock (_cookies.SyncRoot) {
           _cookies.SetOrRemove (cookie);
         }
-      }
-    }
-
-    /// <summary>
-    /// Sets a pair of the <paramref name="username"/> and
-    /// <paramref name="password"/> for HTTP authentication (Basic/Digest).
-    /// </summary>
-    /// <param name="username">
-    /// A <see cref="string"/> that represents the user name used to authenticate.
-    /// </param>
-    /// <param name="password">
-    /// A <see cref="string"/> that represents the password for
-    /// <paramref name="username"/> used to authenticate.
-    /// </param>
-    /// <param name="preAuth">
-    /// <c>true</c> if the <see cref="WebSocket"/> sends the Basic authentication
-    /// credentials with the first connection request to the server; otherwise,
-    /// <c>false</c>.
-    /// </param>
-    public void SetCredentials (string username, string password, bool preAuth)
-    {
-      lock (_forConn) {
-        var msg = checkIfAvailable ("SetCredentials", false, false);
-        if (msg == null) {
-          if (username.IsNullOrEmpty ()) {
-            _credentials = null;
-            _preAuth = false;
-            _logger.Warn ("Credentials was set back to the default.");
-
-            return;
-          }
-
-          msg = username.Contains (':') || !username.IsText ()
-              ? "'username' contains an invalid character."
-              : !password.IsNullOrEmpty () && !password.IsText ()
-                ? "'password' contains an invalid character."
-                : null;
-        }
-
-        if (msg != null) {
-          _logger.Error (msg);
-          error (msg);
-
-          return;
-        }
-
-        _credentials = new NetworkCredential (
-          username, password, _uri.PathAndQuery);
-
-        _preAuth = preAuth;
       }
     }
 
