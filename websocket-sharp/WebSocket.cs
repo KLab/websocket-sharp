@@ -249,6 +249,8 @@ namespace WebSocketSharp
     /// </value>
     public bool IsAlive {
       get {
+        if (_readyState != WebSocketState.OPEN)
+          return false;
         long elapse = DateTime.Now.Ticks / 10000 - _rttLastModifiedAt;
         if (elapse > (PingInterval + 5000))
           return false;
