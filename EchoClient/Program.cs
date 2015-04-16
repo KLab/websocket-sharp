@@ -12,7 +12,7 @@ namespace EchoClient
         return;
       }
 
-      WebSocket ws = new WebSocket(args[0], null);
+      WebSocket ws = new WebSocket(args[0]);
       ws.OnOpen = (Object sender, EventArgs e) => {
         Console.WriteLine ("Connected");
         Console.Write("-> ");

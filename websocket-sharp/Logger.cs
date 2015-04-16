@@ -28,7 +28,7 @@
 
 using System;
 using System.Diagnostics;
-using System.IO;
+
 
 namespace WebSocketSharp
 {
@@ -43,8 +43,7 @@ namespace WebSocketSharp
   ///   the log can not be outputted.
   ///   </para>
   ///   <para>
-  ///   The default output action used by the output methods outputs the log data to the standard output stream
-  ///   and writes the same log data to the <see cref="Logger.File"/> if it has a valid path.
+  ///   The default output action used by the output methods outputs the log data to the standard output stream.
   ///   </para>
   ///   <para>
   ///   If you want to run custom output action, you can replace the current output action with
@@ -55,9 +54,8 @@ namespace WebSocketSharp
   {
     #region Private Fields
 
-    private volatile string         _file;
     private volatile LogLevel       _level;
-    private Action<LogData, string> _output;
+    private Action<LogData>         _output;
     private object                  _sync;
 
     #endregion
@@ -68,11 +66,10 @@ namespace WebSocketSharp
     /// Initializes a new instance of the <see cref="Logger"/> class.
     /// </summary>
     /// <remarks>
-    /// This constructor initializes the current logging level with the <see cref="LogLevel.ERROR"/> and
-    /// initializes the path to the log file with <see langword="null"/>.
+    /// This constructor initializes the current logging level with the <see cref="LogLevel.ERROR"/>.
     /// </remarks>
     public Logger ()
-      : this (LogLevel.ERROR, null, null)
+      : this (LogLevel.ERROR, null)
     {
     }
 
@@ -80,14 +77,11 @@ namespace WebSocketSharp
     /// Initializes a new instance of the <see cref="Logger"/> class
     /// with the specified logging <paramref name="level"/>.
     /// </summary>
-    /// <remarks>
-    /// This constructor initializes the path to the log file with <see langword="null"/>.
-    /// </remarks>
     /// <param name="level">
     /// One of the <see cref="LogLevel"/> values to initialize.
     /// </param>
     public Logger (LogLevel level)
-      : this (level, null, null)
+      : this (level, null)
     {
     }
 
@@ -103,41 +97,18 @@ namespace WebSocketSharp
     /// A <see cref="string"/> that contains a path to the log file to initialize.
     /// </param>
     /// <param name="output">
-    /// An <c>Action&lt;LogData, string&gt;</c> delegate that references the method(s) to initialize.
-    /// A <see cref="string"/> parameter to pass to the method(s) is the value of the <see cref="Logger.File"/> 
-    /// if any.
+    /// An <c>Action&lt;LogData&gt;</c> delegate that references the method(s) to initialize.
     /// </param>
-    public Logger (LogLevel level, string file, Action<LogData, string> output)
+    public Logger (LogLevel level, Action<LogData> output)
     {
       _level = level;
-      _file = file;
-      _output = output != null ? output : defaultOutput;
+      _output = output ?? defaultOutput;
       _sync = new object ();
     }
 
     #endregion
 
     #region Public Properties
-
-    /// <summary>
-    /// Gets or sets the path to the log file.
-    /// </summary>
-    /// <value>
-    /// A <see cref="string"/> that contains a path to the log file if any.
-    /// </value>
-    public string File {
-      get {
-        return _file;
-      }
-
-      set {
-        lock (_sync)
-        {
-          _file = value;
-          Warn (String.Format ("The current path to the log file has been changed to {0}.", _file ?? ""));
-        }
-      }
-    }
 
     /// <summary>
     /// Gets or sets the current logging level.
@@ -163,12 +134,10 @@ namespace WebSocketSharp
 
     #region Private Methods
 
-    private static void defaultOutput (LogData data, string path)
+    private static void defaultOutput (LogData data)
     {
       var log = data.ToString ();
       Console.WriteLine (log);
-      if (path != null && path.Length > 0)
-        writeLine (log, path);
     }
 
     private void output (string message, LogLevel level)
@@ -181,21 +150,12 @@ namespace WebSocketSharp
         LogData data = null;
         try {
           data = new LogData (level, new StackFrame (2, true), message);
-          _output (data, _file);
+          _output (data);
         }
         catch (Exception ex) {
           data = new LogData (LogLevel.FATAL, new StackFrame (0, true), ex.Message);
           Console.WriteLine (data.ToString ());
         }
-      }
-    }
-
-    private static void writeLine (string value, string path)
-    {
-      using (var writer = new StreamWriter (path, true))
-      using (var syncWriter = TextWriter.Synchronized (writer))
-      {
-        syncWriter.WriteLine (value);
       }
     }
 
@@ -271,15 +231,13 @@ namespace WebSocketSharp
     /// this method replaces the current output action with the default output action.
     /// </remarks>
     /// <param name="output">
-    /// An <c>Action&lt;LogData, string&gt;</c> delegate that references the method(s) to set.
-    /// A <see cref="string"/> parameter to pass to the method(s) is the value of the <see cref="Logger.File"/>
-    /// if any.
+    /// An <c>Action&lt;LogData&gt;</c> delegate that references the method(s) to set.
     /// </param>
-    public void SetOutput (Action<LogData, string> output)
+    public void SetOutput (Action<LogData> output)
     {
       lock (_sync)
       {
-        _output = output != null ? output : defaultOutput;
+        _output = output ?? defaultOutput;
         Warn ("The current output action has been replaced.");
       }
     }

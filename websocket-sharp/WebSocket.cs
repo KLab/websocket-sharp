@@ -33,10 +33,8 @@
 #endregion
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
-using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
 using System.Net.Security;
@@ -130,7 +128,11 @@ namespace WebSocketSharp
     /// <exception cref="ArgumentNullException">
     /// <paramref name="url"/> is <see langword="null"/>.
     /// </exception>
-    public WebSocket (string url, params string [] protocols)
+    public WebSocket (string url, params string [] protocols) : this (url, null, protocols)
+    {
+    }
+
+    public WebSocket (string url, Logger logger, params string [] protocols)
     {
       if (url == null)
         throw new ArgumentNullException ("url");
@@ -148,7 +150,7 @@ namespace WebSocketSharp
       }
 
       _base64Key = CreateBase64Key ();
-      _logger = new Logger ();
+      _logger = logger ?? new Logger ();
       _secure = _uri.Scheme == "wss";
 
       init ();
