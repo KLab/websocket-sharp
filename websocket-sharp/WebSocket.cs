@@ -80,6 +80,7 @@ namespace WebSocketSharp
     private volatile Logger         _logger;
     private string                  _origin;
     private Timer                   _pingSender;
+    private int                     _pingInterval;
     private string                  _protocol;
     private string []               _protocols;
     private volatile WebSocketState _readyState;
@@ -96,7 +97,6 @@ namespace WebSocketSharp
     #region Internal Const Fields
 
     internal const int FragmentLength = 1016; // Max value is int.MaxValue - 14.
-    internal const int PingInterval = 5000;
 
     #endregion
 
@@ -108,6 +108,9 @@ namespace WebSocketSharp
     /// </summary>
     /// <param name="url">
     /// A <see cref="string"/> that represents the WebSocket URL to connect.
+    /// </param>
+    /// <param name="pingInterval">
+    /// A <see cref="int"/> that represents the WebSocket PING interval in milliseconds.
     /// </param>
     /// <param name="protocols">
     /// An array of <see cref="string"/> that contains the WebSocket subprotocols
@@ -122,20 +125,29 @@ namespace WebSocketSharp
     ///   -or-
     ///   </para>
     ///   <para>
+    ///   <paramref name="pingInterval"/> is invalid.
+    ///   </para>
+    ///   <para>
+    ///   -or-
+    ///   </para>
+    ///   <para>
     ///   <paramref name="protocols"/> is invalid.
     ///   </para>
     /// </exception>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="url"/> is <see langword="null"/>.
     /// </exception>
-    public WebSocket (string url, params string [] protocols) : this (url, null, protocols)
+    public WebSocket (string url, int pingInterval = 5000, params string [] protocols) : this (url, null, pingInterval, protocols)
     {
     }
 
-    public WebSocket (string url, Logger logger, params string [] protocols)
+    public WebSocket (string url, Logger logger, int pingInterval = 5000, params string [] protocols)
     {
       if (url == null)
         throw new ArgumentNullException ("url");
+
+      if (pingInterval < 0)
+        throw new ArgumentException ("Value is less than 0", "pingInterval");
 
       string msg;
       if (!url.TryCreateWebSocketUri (out _uri, out msg))
@@ -152,6 +164,7 @@ namespace WebSocketSharp
       _base64Key = CreateBase64Key ();
       _logger = logger ?? new Logger ();
       _secure = _uri.Scheme == "wss";
+      _pingInterval = pingInterval;
 
       init ();
     }
@@ -252,7 +265,7 @@ namespace WebSocketSharp
         if (_readyState != WebSocketState.OPEN)
           return false;
         long elapse = DateTime.Now.Ticks / 10000 - _rttLastModifiedAt;
-        if (elapse > (PingInterval + 5000))
+        if (elapse > (_pingInterval + 5000))
           return false;
 
         if (_rtt < 5000)
@@ -578,7 +591,7 @@ namespace WebSocketSharp
 
       _pingSender = new Timer((object o) => {
         Ping ();
-      }, null, PingInterval, Timeout.Infinite);
+      }, null, _pingInterval, Timeout.Infinite);
 
       return true;
     }
