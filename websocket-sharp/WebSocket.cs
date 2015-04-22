@@ -80,6 +80,7 @@ namespace WebSocketSharp
     private volatile Logger         _logger;
     private string                  _origin;
     private Timer                   _pingSender;
+    private int                     _pingInterval;
     private string                  _protocol;
     private string []               _protocols;
     private volatile WebSocketState _readyState;
@@ -96,7 +97,6 @@ namespace WebSocketSharp
     #region Internal Const Fields
 
     internal const int FragmentLength = 1016; // Max value is int.MaxValue - 14.
-    internal const int PingInterval = 5000;
 
     #endregion
 
@@ -152,6 +152,7 @@ namespace WebSocketSharp
       _base64Key = CreateBase64Key ();
       _logger = logger ?? new Logger ();
       _secure = _uri.Scheme == "wss";
+      _pingInterval = 5000;
 
       init ();
     }
@@ -252,7 +253,7 @@ namespace WebSocketSharp
         if (_readyState != WebSocketState.OPEN)
           return false;
         long elapse = DateTime.Now.Ticks / 10000 - _rttLastModifiedAt;
-        if (elapse > (PingInterval + 5000))
+        if (elapse > (_pingInterval + 5000))
           return false;
 
         if (_rtt < 5000)
@@ -437,6 +438,22 @@ namespace WebSocketSharp
       }
     }
 
+    /// <summary>
+    /// Gets and Sets the WebSocket PING interval.
+    /// </summary>
+    /// <value>
+    /// A <see cref="int"/> that represents the Websocket PING interval in millisecond.
+    /// The default value is 5000.
+    /// </value>
+    public int PingInterval {
+      get {
+        return _pingInterval;
+      }
+      set {
+        _pingInterval = value;
+      }
+    }
+
     #endregion
 
     #region Public Events
@@ -578,7 +595,7 @@ namespace WebSocketSharp
 
       _pingSender = new Timer((object o) => {
         Ping ();
-      }, null, PingInterval, Timeout.Infinite);
+      }, null, _pingInterval, Timeout.Infinite);
 
       return true;
     }
