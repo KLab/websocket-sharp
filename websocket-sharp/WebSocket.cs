@@ -109,9 +109,6 @@ namespace WebSocketSharp
     /// <param name="url">
     /// A <see cref="string"/> that represents the WebSocket URL to connect.
     /// </param>
-    /// <param name="pingInterval">
-    /// A <see cref="int"/> that represents the WebSocket PING interval in milliseconds.
-    /// </param>
     /// <param name="protocols">
     /// An array of <see cref="string"/> that contains the WebSocket subprotocols
     /// if any. Each value of <paramref name="protocols"/> must be a token defined
@@ -125,29 +122,20 @@ namespace WebSocketSharp
     ///   -or-
     ///   </para>
     ///   <para>
-    ///   <paramref name="pingInterval"/> is invalid.
-    ///   </para>
-    ///   <para>
-    ///   -or-
-    ///   </para>
-    ///   <para>
     ///   <paramref name="protocols"/> is invalid.
     ///   </para>
     /// </exception>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="url"/> is <see langword="null"/>.
     /// </exception>
-    public WebSocket (string url, int pingInterval = 5000, params string [] protocols) : this (url, null, pingInterval, protocols)
+    public WebSocket (string url, params string [] protocols) : this (url, null, protocols)
     {
     }
 
-    public WebSocket (string url, Logger logger, int pingInterval = 5000, params string [] protocols)
+    public WebSocket (string url, Logger logger, params string [] protocols)
     {
       if (url == null)
         throw new ArgumentNullException ("url");
-
-      if (pingInterval < 0)
-        throw new ArgumentException ("Value is less than 0", "pingInterval");
 
       string msg;
       if (!url.TryCreateWebSocketUri (out _uri, out msg))
@@ -164,7 +152,7 @@ namespace WebSocketSharp
       _base64Key = CreateBase64Key ();
       _logger = logger ?? new Logger ();
       _secure = _uri.Scheme == "wss";
-      _pingInterval = pingInterval;
+      _pingInterval = 5000;
 
       init ();
     }
@@ -447,6 +435,22 @@ namespace WebSocketSharp
     public long Rtt {
       get {
         return _rtt;
+      }
+    }
+
+    /// <summary>
+    /// Gets and Sets the WebSocket PING interval.
+    /// </summary>
+    /// <value>
+    /// A <see cref="int"/> that represents the Websocket PING interval in millisecond.
+    /// The default value is 5000.
+    /// </value>
+    public int PingInterval {
+      get {
+        return _pingInterval;
+      }
+      set {
+        _pingInterval = value;
       }
     }
 
