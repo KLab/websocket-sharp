@@ -153,6 +153,7 @@ namespace WebSocketSharp
       _logger = logger ?? new Logger ();
       _secure = _uri.Scheme == "wss";
       _pingInterval = 5000;
+      _rttLastModifiedAt = DateTime.Now.Ticks / 10000;
 
       init ();
     }
