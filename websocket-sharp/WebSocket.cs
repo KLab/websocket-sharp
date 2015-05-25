@@ -76,10 +76,10 @@ namespace WebSocketSharp
     private AutoResetEvent          _exitReceiving;
     private object                  _forConn;
     private object                  _forSend;
-    private long                    _lastPingTimestamp;
     private volatile Logger         _logger;
     private string                  _origin;
     private Timer                   _pingSender;
+    private long                    _pingSentAt;
     private int                     _pingInterval;
     private string                  _protocol;
     private string []               _protocols;
@@ -89,6 +89,7 @@ namespace WebSocketSharp
     private bool                    _secure;
     private WsStream                _stream;
     private TcpClient               _tcpClient;
+    private int                     _timeoutRtt;
     private Uri                     _uri;
     private NameValueCollection     _customHeaders;
 
@@ -153,6 +154,7 @@ namespace WebSocketSharp
       _logger = logger ?? new Logger ();
       _secure = _uri.Scheme == "wss";
       _pingInterval = 5000;
+      _timeoutRtt = 3000;
       _rttLastModifiedAt = DateTime.Now.Ticks / 10000;
 
       init ();
@@ -253,14 +255,12 @@ namespace WebSocketSharp
       get {
         if (_readyState != WebSocketState.OPEN)
           return false;
-        long elapse = DateTime.Now.Ticks / 10000 - _rttLastModifiedAt;
-        if (elapse > (_pingInterval + 5000))
-          return false;
-
-        if (_rtt < 5000)
+        if (_pingSentAt == 0)
           return true;
-
-        return false;
+        long elapse = DateTime.Now.Ticks / 10000 - _pingSentAt;
+        if (elapse > _timeoutRtt)
+          return false;
+        return true;
       }
     }
 
@@ -455,6 +455,22 @@ namespace WebSocketSharp
       }
     }
 
+    /// <summary>
+    /// Gets and Sets the WebSocket timeout RTT.
+    /// </summary>
+    /// <value>
+    /// A <see cref="int"/> that represents RTT the Websocket is regarded as timeout in millisecond.
+    /// The default value is 3000.
+    /// </value>
+    public int TimeoutRtt {
+      get {
+        return _timeoutRtt;
+      }
+      set {
+        _timeoutRtt = value;
+      }
+    }
+
     #endregion
 
     #region Public Events
@@ -588,9 +604,10 @@ namespace WebSocketSharp
     {
       _logger.Trace ("Received a Pong.");
 
-      _rtt = DateTime.Now.Ticks / 10000 - _lastPingTimestamp;
+      _rtt = DateTime.Now.Ticks / 10000 - _pingSentAt;
       _rttLastModifiedAt = DateTime.Now.Ticks / 10000;
 
+      _pingSentAt = 0;
       if (_pingSender != null)
         _pingSender.Dispose ();
 
@@ -1308,7 +1325,7 @@ namespace WebSocketSharp
 
     internal bool Ping ()
     {
-      _lastPingTimestamp = DateTime.Now.Ticks / 10000; // Millseconds
+      _pingSentAt = DateTime.Now.Ticks / 10000; // Millseconds
       return send (WsFrame.CreatePingFrame (Mask.MASK).ToByteArray ());
     }
 
