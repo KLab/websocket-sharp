@@ -89,6 +89,7 @@ namespace WebSocketSharp
     private bool                    _secure;
     private WsStream                _stream;
     private TcpClient               _tcpClient;
+    private int                     _timeoutRtt;
     private Uri                     _uri;
     private NameValueCollection     _customHeaders;
 
@@ -153,6 +154,7 @@ namespace WebSocketSharp
       _logger = logger ?? new Logger ();
       _secure = _uri.Scheme == "wss";
       _pingInterval = 5000;
+      _timeoutRtt = 3000;
       _rttLastModifiedAt = DateTime.Now.Ticks / 10000;
 
       init ();
@@ -254,13 +256,9 @@ namespace WebSocketSharp
         if (_readyState != WebSocketState.OPEN)
           return false;
         long elapse = DateTime.Now.Ticks / 10000 - _rttLastModifiedAt;
-        if (elapse > (_pingInterval + 5000))
+        if (elapse > (_pingInterval + _timeoutRtt))
           return false;
-
-        if (_rtt < 5000)
-          return true;
-
-        return false;
+        return true;
       }
     }
 
@@ -452,6 +450,22 @@ namespace WebSocketSharp
       }
       set {
         _pingInterval = value;
+      }
+    }
+
+    /// <summary>
+    /// Gets and Sets the WebSocket timeout RTT.
+    /// </summary>
+    /// <value>
+    /// A <see cref="int"/> that represents RTT the Websocket is regarded as timeout in millisecond.
+    /// The default value is 3000.
+    /// </value>
+    public int TimeoutRtt {
+      get {
+        return _timeoutRtt;
+      }
+      set {
+        _timeoutRtt = value;
       }
     }
 
