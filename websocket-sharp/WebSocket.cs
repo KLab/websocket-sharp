@@ -1224,6 +1224,8 @@ namespace WebSocketSharp
       var host = _uri.DnsSafeHost;
       var port = _uri.Port;
       _tcpClient = new TcpClient (host, port);
+      _tcpClient.Client.SetSocketOption (SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+      _tcpClient.Client.SetSocketOption (SocketOptionLevel.Tcp, SocketOptionName.NoDelay, true);
       _stream = WsStream.CreateClientStream (
         _tcpClient, _secure, host, _certValidationCallback);
     }
