@@ -85,7 +85,6 @@ namespace WebSocketSharp
     private string []               _protocols;
     private volatile WebSocketState _readyState;
     private long                    _rtt;
-    private long                    _rttLastModifiedAt;
     private bool                    _secure;
     private WsStream                _stream;
     private TcpClient               _tcpClient;
@@ -155,7 +154,6 @@ namespace WebSocketSharp
       _secure = _uri.Scheme == "wss";
       _pingInterval = 5000;
       _timeoutRtt = 3000;
-      _rttLastModifiedAt = DateTime.Now.Ticks / 10000;
 
       init ();
     }
@@ -605,7 +603,6 @@ namespace WebSocketSharp
       _logger.Trace ("Received a Pong.");
 
       _rtt = DateTime.Now.Ticks / 10000 - _pingSentAt;
-      _rttLastModifiedAt = DateTime.Now.Ticks / 10000;
 
       _pingSentAt = 0;
       if (_pingSender != null)
@@ -1224,6 +1221,8 @@ namespace WebSocketSharp
       var host = _uri.DnsSafeHost;
       var port = _uri.Port;
       _tcpClient = new TcpClient (host, port);
+      _tcpClient.Client.SetSocketOption (SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+      _tcpClient.Client.SetSocketOption (SocketOptionLevel.Tcp, SocketOptionName.NoDelay, true);
       _stream = WsStream.CreateClientStream (
         _tcpClient, _secure, host, _certValidationCallback);
     }
