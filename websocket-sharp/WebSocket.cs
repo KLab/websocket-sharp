@@ -85,6 +85,7 @@ namespace WebSocketSharp
     private string []               _protocols;
     private volatile WebSocketState _readyState;
     private long                    _rtt;
+    private DateTime                _lastReceiveTime;
     private bool                    _secure;
     private WsStream                _stream;
     private TcpClient               _tcpClient;
@@ -154,7 +155,7 @@ namespace WebSocketSharp
       _secure = _uri.Scheme == "wss";
       _pingInterval = 5000;
       _timeoutRtt = 3000;
-
+      _lastReceiveTime = DateTime.Now;
       init ();
     }
 
@@ -242,6 +243,20 @@ namespace WebSocketSharp
         return _extensions;
       }
     }
+
+    /// <summary>
+    /// Gets the time of last receive.
+    /// </summary>
+    /// <value>
+    /// A DateTime when connection last received. (the connection received even once)
+    /// A DateTime when instance created. (otherwise)
+    /// </value>
+    public DateTime LastReceiveTime {
+      get {
+          return _lastReceiveTime;
+      }
+    }
+
 
     /// <summary>
     /// Gets a value indicating whether the WebSocket connection is alive.
@@ -571,6 +586,7 @@ namespace WebSocketSharp
 
     private bool acceptFrame (WsFrame frame)
     {
+      _lastReceiveTime = DateTime.Now;
       return frame.IsCompressed && _compression == CompressionMethod.NONE
              ? acceptUnsupportedFrame (
                  frame,
