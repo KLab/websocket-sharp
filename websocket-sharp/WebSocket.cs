@@ -245,15 +245,15 @@ namespace WebSocketSharp
     }
 
     /// <summary>
-    /// Gets the time of last receive.
+    /// Gets a value that represents elapsed time since the connection last received in milliseconds.
     /// </summary>
     /// <value>
-    /// A DateTime when connection last received. (the connection received even once)
-    /// A DateTime when instance created. (otherwise)
+    /// An <see cref="int"/> that represents elapsed time since last receive in milliseconds. (the connection received even once)
+    /// An <see cref="int"/> that represents elapsed time since instance created in milliseconds. (otherwise)
     /// </value>
-    public DateTime LastReceiveTime {
+    public int SinceLastReceiveTime {
       get {
-          return _lastReceiveTime;
+          return DateTime.UtcNow.Subtract(_lastReceiveTime).Milliseconds;
       }
     }
 
@@ -586,7 +586,7 @@ namespace WebSocketSharp
 
     private bool acceptFrame (WsFrame frame)
     {
-      _lastReceiveTime = DateTime.Now;
+      _lastReceiveTime = DateTime.UtcNow;
       return frame.IsCompressed && _compression == CompressionMethod.NONE
              ? acceptUnsupportedFrame (
                  frame,
