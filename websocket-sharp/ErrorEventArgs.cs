@@ -35,15 +35,29 @@ namespace WebSocketSharp
   /// </summary>
   /// <remarks>
   /// A <see cref="WebSocket.OnError"/> event occurs when the <see cref="WebSocket"/> gets an error.
-  /// If you want to get the error message, you access the <see cref="ErrorEventArgs.Message"/> property.
+  /// If you would like to get the error message, you should access the <see cref="Message"/>
+  /// property.
   /// </remarks>
   public class ErrorEventArgs : EventArgs
   {
+    #region Private Fields
+
+    private string _message;
+    private Exception _exception;
+
+    #endregion
+
     #region Internal Constructors
 
     internal ErrorEventArgs (string message)
+      : this (message, null)
     {
-      Message = message;
+    }
+
+    internal ErrorEventArgs (string message, Exception exception)
+    {
+      _message = message;
+      _exception = exception;
     }
 
     #endregion
@@ -54,9 +68,25 @@ namespace WebSocketSharp
     /// Gets the error message.
     /// </summary>
     /// <value>
-    /// A <see cref="string"/> that contains an error message.
+    /// A <see cref="string"/> that represents the error message.
     /// </value>
-    public string Message { get; private set; }
+    public string Message {
+      get {
+        return _message;
+      }
+    }
+
+    /// <summary>
+    /// Gets the exception that caused the error.
+    /// </summary>
+    /// A <see cref="Exception"/> instance that represents the cause of the error,
+    /// or <see langword="null"/> if the error isn't due to an exception.
+    /// </value>
+    public Exception Exception {
+      get {
+        return _exception;
+      }
+    }
 
     #endregion
   }

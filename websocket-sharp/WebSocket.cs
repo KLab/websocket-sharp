@@ -552,7 +552,7 @@ namespace WebSocketSharp
         msg = null;
       }
 
-      error (msg ?? code.GetMessage ());
+      error (msg ?? code.GetMessage (), exception);
       close (code, reason ?? code.GetMessage (), false);
     }
 
@@ -724,7 +724,7 @@ namespace WebSocketSharp
       }
       catch (Exception ex) {
         _logger.Fatal (ex.ToString ());
-        error ("An exception has occurred while OnClose.");
+        error ("An exception has occurred while OnClose.", ex);
       }
     }
 
@@ -940,9 +940,9 @@ namespace WebSocketSharp
       return true;
     }
 
-    private void error (string message)
+    private void error (string message, Exception exc = null)
     {
-      OnError.Emit (this, new ErrorEventArgs (message));
+      OnError.Emit (this, new ErrorEventArgs (message, exc));
     }
 
     private void init ()
@@ -1089,7 +1089,7 @@ namespace WebSocketSharp
         }
         catch (Exception ex) {
           _logger.Fatal (ex.ToString ());
-          error ("An exception has occurred while sending a data.");
+          error ("An exception has occurred while sending a data.", ex);
         }
 
         return sent;
@@ -1113,7 +1113,7 @@ namespace WebSocketSharp
         }
         catch (Exception ex) {
           _logger.Fatal (ex.ToString ());
-          error ("An exception has occurred while sending a data.");
+          error ("An exception has occurred while sending a data.", ex);
         }
         finally {
           if (compressed)
@@ -1366,7 +1366,7 @@ namespace WebSocketSharp
         }
         catch (Exception ex) {
           _logger.Fatal (ex.ToString ());
-          error ("An exception has occurred while sending a data.");
+          error ("An exception has occurred while sending a data.", ex);
         }
       }
     }
@@ -1390,7 +1390,7 @@ namespace WebSocketSharp
         }
         catch (Exception ex) {
           _logger.Fatal (ex.ToString ());
-          error ("An exception has occurred while sending a data.");
+          error ("An exception has occurred while sending a data.", ex);
         }
       }
     }
@@ -1935,7 +1935,7 @@ namespace WebSocketSharp
         },
         ex => {
           _logger.Fatal (ex.ToString ());
-          error ("An exception has occurred while sending a data.");
+          error ("An exception has occurred while sending a data.", ex);
         });
     }
 
