@@ -701,6 +701,8 @@ namespace WebSocketSharp
           return;
         }
 
+        if (_pingSender != null)
+          _pingSender.Dispose ();
         _readyState = WebSocketState.CLOSING;
       }
 
@@ -718,8 +720,6 @@ namespace WebSocketSharp
 
       _readyState = WebSocketState.CLOSED;
       try {
-        if (_pingSender != null)
-          _pingSender.Dispose ();
         OnClose.Emit (this, args);
       }
       catch (Exception ex) {
