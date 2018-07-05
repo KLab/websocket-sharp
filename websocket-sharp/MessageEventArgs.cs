@@ -46,27 +46,29 @@ namespace WebSocketSharp
 
     private string _data;
     private Opcode _opcode;
-    private byte[] _rawData;
+    private ArraySegment<byte> _rawData;
 
     #endregion
 
     #region Internal Constructors
 
-    internal MessageEventArgs (Opcode opcode, byte[] data)
+    internal MessageEventArgs (Opcode opcode, ArraySegment<byte> data)
     {
-      if ((ulong) data.LongLength > PayloadData.MaxLength)
+      if ((ulong) data.Count > PayloadData.MaxLength)
         throw new WebSocketException (CloseStatusCode.TOO_BIG);
-
       _opcode = opcode;
       _rawData = data;
-      _data = convertToString (opcode, data);
+      _data = null;
+    }
+
+    internal MessageEventArgs(Opcode opcode, byte[] data)
+        : this(opcode, new ArraySegment<byte>(data))
+    {
     }
 
     internal MessageEventArgs (Opcode opcode, PayloadData payload)
+        : this(opcode, payload.ApplicationData)
     {
-      _opcode = opcode;
-      _rawData = payload.ApplicationData;
-      _data = convertToString (opcode, _rawData);
     }
 
     #endregion
@@ -81,6 +83,10 @@ namespace WebSocketSharp
     /// </value>
     public string Data {
       get {
+        if (_data == null)
+        {
+          _data = convertToString(_opcode, _rawData);
+        }
         return _data;
       }
     }
@@ -91,7 +97,7 @@ namespace WebSocketSharp
     /// <value>
     /// An array of <see cref="byte"/> that contains the received data.
     /// </value>
-    public byte [] RawData {
+    public ArraySegment<byte> RawData {
       get {
         return _rawData;
       }
@@ -113,12 +119,12 @@ namespace WebSocketSharp
 
     #region Private Methods
 
-    private static string convertToString (Opcode opcode, byte [] data)
+    private static string convertToString (Opcode opcode, ArraySegment<byte> data)
     {
-      return data.LongLength == 0
+      return data.Count == 0
              ? String.Empty
              : opcode == Opcode.TEXT
-               ? Encoding.UTF8.GetString (data)
+               ? Encoding.UTF8.GetString(data.Array, data.Offset, data.Count)
                : opcode.ToString ();
     }
 

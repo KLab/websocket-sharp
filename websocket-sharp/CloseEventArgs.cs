@@ -110,11 +110,26 @@ namespace WebSocketSharp
 
     #region Private Methods
 
+    private static ushort getCodeFrom (ArraySegment<byte> data)
+    {
+      return data.Count > 1
+             ? data.Array.SubArray (data.Offset, 2).ToUInt16 (ByteOrder.BIG)
+             : (ushort) CloseStatusCode.NO_STATUS_CODE;
+    }
+
     private static ushort getCodeFrom (byte [] data)
     {
       return data.Length > 1
              ? data.SubArray (0, 2).ToUInt16 (ByteOrder.BIG)
              : (ushort) CloseStatusCode.NO_STATUS_CODE;
+    }
+
+    private static string getReasonFrom (ArraySegment<byte> data)
+    {
+      var len = data.Count;
+      return len > 2
+             ? Encoding.UTF8.GetString (data.Array, data.Offset + 2, len - 2)
+             : String.Empty;
     }
 
     private static string getReasonFrom (byte [] data)

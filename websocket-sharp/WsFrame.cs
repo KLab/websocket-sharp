@@ -241,12 +241,13 @@ namespace WebSocketSharp
 
     #region Private Methods
 
+    private static readonly Random random = new Random();
     private static byte [] createMaskingKey ()
     {
       var key = new byte [4];
-      var rand = new Random ();
-      rand.NextBytes (key);
-
+      lock(random) {
+        random.NextBytes(key);
+      }
       return key;
     }
 
@@ -462,20 +463,29 @@ namespace WebSocketSharp
           throw new WebSocketException (
             CloseStatusCode.TOO_BIG, "The 'Payload Data' length is greater than the allowable length.");
 
-        data = payloadLen > 126
-             ? stream.ReadBytes ((long) dataLen, 1024)
-             : stream.ReadBytes ((int) dataLen);
-
-        if (data.LongLength != (long) dataLen)
-          throw new WebSocketException (
-            "The 'Payload Data' of a frame cannot be read from the data source.");
+        if (dataLen < (ulong)BufferPool.Default.BufferLength)
+        {
+          data = BufferPool.Default.Rent();
+          int read = stream.Read(data, 0, (int)dataLen);
+          if (read != (int)dataLen)
+            throw new WebSocketException (
+              "The 'Payload Data' of a frame cannot be read from the data source.");
+        }
+        else
+        {
+          data = stream.ReadBytes ((long) dataLen, 1024);
+          if (data.Length != (long)dataLen)
+            throw new WebSocketException (
+              "The 'Payload Data' of a frame cannot be read from the data source.");
+        }
       }
       else
       {
         data = new byte []{};
       }
 
-      var payload = new PayloadData (data, masked);
+      if (data == null) throw new Exception("null data");
+      var payload = new PayloadData (new ArraySegment<byte>(new byte[]{ }), new ArraySegment<byte>(data, 0, (int)dataLen), masked);
       if (masked && unmask)
       {
         payload.Mask (maskingKey);
@@ -521,8 +531,11 @@ namespace WebSocketSharp
                : size > 0
                  ? String.Format ("A {0} data with {1} bytes.", opcode.ToLower (), extLen)
                  : masked || frame.IsFragmented || frame.IsBinary || frame.IsClose
-                   ? BitConverter.ToString (frame.PayloadData.ToByteArray ())
-                   : Encoding.UTF8.GetString (frame.PayloadData.ApplicationData);
+                   ? frame.PayloadData.ToString()
+                   : Encoding.UTF8.GetString (
+                       frame.PayloadData.ApplicationData.Array,
+                       frame.PayloadData.ApplicationData.Offset,
+                       frame.PayloadData.ApplicationData.Count);
 
       var format =
 @"                 FIN: {0}
@@ -584,6 +597,12 @@ Extended Payload Len: {7}
       return new WsFrame (fin, opcode, mask, new PayloadData (data), compressed);
     }
 
+    public static WsFrame CreateFrame (
+      Fin fin, Opcode opcode, Mask mask, ArraySegment<byte> data, bool compressed)
+    {
+      return new WsFrame (fin, opcode, mask, new PayloadData (data), compressed);
+    }
+
     public static WsFrame CreatePingFrame (Mask mask)
     {
       return new WsFrame (Opcode.PING, mask, new PayloadData ());
@@ -641,19 +660,28 @@ Extended Payload Len: {7}
     public static void ParseAsync (
       Stream stream, bool unmask, Action<WsFrame> completed, Action<Exception> error)
     {
-      stream.ReadBytesAsync (
-        2,
-        header =>
-        {
-          if (header.Length != 2)
-            throw new WebSocketException (
-              "The header part of a frame cannot be read from the data source.");
-
-          var frame = parse (header, stream, unmask);
-          if (completed != null)
-            completed (frame);
-        },
-        error);
+      var header = new byte[2];
+      stream.BeginRead(header, 0, 2, (ar) =>
+      {
+          try {
+              var read = stream.EndRead(ar);
+              if (read != 2)
+                throw new WebSocketException (
+                  "The header part of a frame cannot be read from the data source.");
+              var frame = parse (header, stream, unmask);
+              if (completed != null)
+              {
+                completed (frame);
+              }
+          }
+          catch (Exception e)
+          {
+              if (error != null)
+              {
+                  error(e);
+              }
+          }
+      }, null);
     }
 
     public void Print (bool dumped)
@@ -666,18 +694,69 @@ Extended Payload Len: {7}
       return dumped ? dump (this) : print (this);
     }
 
+    [ThreadStatic]
+    static byte[] _unsafeBuffer = null;
+    static byte[] _getUnsafeBuffer()
+    {
+        if (_unsafeBuffer == null)
+        {
+            _unsafeBuffer = new byte[16384];
+        }
+        return _unsafeBuffer;
+    }
+
+    public ArraySegment<byte> ToByteArrayUnsafe()
+    {
+      var buf = _getUnsafeBuffer();
+      int off = 0;
+      if (buf.Length < 2 + ExtPayloadLen.Length + MaskingKey.Length + PayloadLen)
+      {
+        return new ArraySegment<byte>(ToByteArray());
+      }
+
+      buf[0] = (byte)((int)Fin << 7 | (int) Rsv1 << 6 | (int) Rsv2 << 5 | (int) Rsv3 << 4 | (int) Opcode);
+      buf[1] = (byte)((int)Mask << 7 | PayloadLen);
+      off += 2;
+
+      if (PayloadLen > 125)
+      {
+        Array.Copy(ExtPayloadLen, 0, buf, off, ExtPayloadLen.Length);
+        off += ExtPayloadLen.Length;
+      }
+
+      if (Mask == Mask.MASK)
+      {
+        Array.Copy(MaskingKey, 0, buf, off, MaskingKey.Length);
+        off += MaskingKey.Length;
+      }
+
+      if (PayloadLen > 0)
+      {
+        Array.Copy(PayloadData.ExtensionData.Array, PayloadData.ExtensionData.Offset, buf, off, PayloadData.ExtensionData.Count);
+        off += PayloadData.ExtensionData.Count;
+        Array.Copy(PayloadData.ApplicationData.Array, PayloadData.ApplicationData.Offset, buf, off, PayloadData.ApplicationData.Count);
+        off += PayloadData.ApplicationData.Count;
+      }
+
+      return new ArraySegment<byte>(buf, 0, off);
+    }
+
     public byte [] ToByteArray()
     {
       using (var buffer = new MemoryStream ())
       {
-        int header = (int) Fin;
-        header = (header << 1) + (int) Rsv1;
-        header = (header << 1) + (int) Rsv2;
-        header = (header << 1) + (int) Rsv3;
-        header = (header << 4) + (int) Opcode;
-        header = (header << 1) + (int) Mask;
-        header = (header << 7) + (int) PayloadLen;
-        buffer.Write (((ushort) header).ToByteArrayInternally (ByteOrder.BIG), 0, 2);
+        byte headerHi = (byte)((int)Fin << 7 | (int) Rsv1 << 6 | (int) Rsv2 << 5 | (int) Rsv3 << 4 | (int) Opcode);
+        byte headerLo = (byte)((int)Mask << 7 | PayloadLen);
+        if (ByteOrder.BIG.IsHostOrder())
+        {
+          buffer.WriteByte(headerLo);
+          buffer.WriteByte(headerHi);
+        }
+        else
+        {
+          buffer.WriteByte(headerHi);
+          buffer.WriteByte(headerLo);
+        }
 
         if (PayloadLen > 125)
           buffer.Write (ExtPayloadLen, 0, ExtPayloadLen.Length);
@@ -687,11 +766,8 @@ Extended Payload Len: {7}
 
         if (PayloadLen > 0)
         {
-          var payload = PayloadData.ToByteArray ();
-          if (PayloadLen < 127)
-            buffer.Write (payload, 0, payload.Length);
-          else
-            buffer.WriteBytes (payload);
+          buffer.Write(PayloadData.ExtensionData.Array, PayloadData.ExtensionData.Offset, PayloadData.ExtensionData.Count);
+          buffer.Write(PayloadData.ApplicationData.Array, PayloadData.ApplicationData.Offset, PayloadData.ApplicationData.Count);
         }
 
         buffer.Close ();

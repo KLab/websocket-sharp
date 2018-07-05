@@ -365,6 +365,21 @@ namespace WebSocketSharp
         dest.Position = 0;
     }
 
+    internal static ArraySegment<byte> Decompress (
+      this ArraySegment<byte> value, CompressionMethod method)
+    {
+      if (method == CompressionMethod.NONE)
+      {
+        return value;
+      }
+
+      using (var ms = new MemoryStream(value.Array, value.Offset, value.Count))
+      {
+        var decompressed = ms.decompress().ToArray();
+        return new ArraySegment<byte> (decompressed, 0, decompressed.Length);
+      }
+    }
+
     internal static byte [] Decompress (
       this byte [] value, CompressionMethod method)
     {
@@ -635,37 +650,6 @@ namespace WebSocketSharp
       }
     }
 
-    internal static void ReadBytesAsync (
-      this Stream stream,
-      int length,
-      Action<byte []> completed,
-      Action<Exception> error)
-    {
-      var buffer = new byte [length];
-      stream.BeginRead (
-        buffer,
-        0,
-        length,
-        ar => {
-          try {
-            var len = stream.EndRead (ar);
-            var bytes = len < 1
-                      ? new byte [0]
-                      : len < length
-                        ? stream.readBytes (buffer, len, length - len)
-                        : buffer;
-
-            if (completed != null)
-              completed (bytes);
-          }
-          catch (Exception ex) {
-            if (error != null)
-              error (ex);
-          }
-        },
-        null);
-    }
-
     internal static string RemovePrefix (
       this string value, params string [] prefixes)
     {
@@ -876,13 +860,6 @@ namespace WebSocketSharp
         value = value.Substring (start + 1, end - start - 1).Replace ("\\\"", "\"");
 
       return value.Trim ();
-    }
-
-    internal static void WriteBytes (this Stream stream, byte [] value)
-    {
-      using (var src = new MemoryStream (value)) {
-        src.CopyTo (stream);
-      }
     }
 
     #endregion

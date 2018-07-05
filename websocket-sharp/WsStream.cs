@@ -218,6 +218,19 @@ namespace WebSocketSharp
       return handshake;
     }
 
+    internal bool Write (ArraySegment<byte> data)
+    {
+      lock (_forWrite) {
+        try {
+          _innerStream.Write (data.Array, data.Offset, data.Count);
+          return true;
+        }
+        catch {
+          return false;
+        }
+      }
+    }
+
     internal bool Write (byte [] data)
     {
       lock (_forWrite) {
