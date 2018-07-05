@@ -701,6 +701,8 @@ namespace WebSocketSharp
           return;
         }
 
+        if (_pingSender != null)
+          _pingSender.Dispose ();
         _readyState = WebSocketState.CLOSING;
       }
 
@@ -718,8 +720,6 @@ namespace WebSocketSharp
 
       _readyState = WebSocketState.CLOSED;
       try {
-        if (_pingSender != null)
-          _pingSender.Dispose ();
         OnClose.Emit (this, args);
       }
       catch (Exception ex) {
@@ -1021,6 +1021,17 @@ namespace WebSocketSharp
         "A response to this WebSocket connection request:\n" + res.ToString ());
 
       return res;
+    }
+
+    private bool pingsend (byte [] frame)
+    {
+      lock (_forConn) {
+        if (_readyState != WebSocketState.OPEN) {
+          return false;
+        }
+
+        return _stream.Write (frame);
+      }
     }
 
     private bool send (byte [] frame)
@@ -1341,7 +1352,7 @@ namespace WebSocketSharp
     internal bool Ping ()
     {
       _pingSentAt = DateTime.Now.Ticks / 10000; // Millseconds
-      return send (WsFrame.CreatePingFrame (Mask.MASK).ToByteArray ());
+      return pingsend (WsFrame.CreatePingFrame (Mask.MASK).ToByteArray ());
     }
 
     // As server, used to broadcast
