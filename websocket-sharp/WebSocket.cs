@@ -566,7 +566,11 @@ namespace WebSocketSharp
     private bool acceptFragments (WsFrame first)
     {
       using (var concatenated = new MemoryStream ()) {
-        concatenated.WriteBytes (first.PayloadData.ApplicationData);
+        concatenated.Write (
+            first.PayloadData.ApplicationData.Array,
+            first.PayloadData.ApplicationData.Offset,
+            first.PayloadData.ApplicationData.Count);
+
         if (!concatenateFragmentsInto (concatenated))
           return false;
 
@@ -686,7 +690,7 @@ namespace WebSocketSharp
     private void close (CloseStatusCode code, string reason, bool wait)
     {
       close (
-        new PayloadData (((ushort) code).Append (reason)),
+        new PayloadData ((((ushort) code).Append (reason))),
         !code.IsReserved (),
         wait);
     }
@@ -776,13 +780,19 @@ namespace WebSocketSharp
 
       // MORE & CONT
       if (!frame.IsFinal && frame.IsContinuation) {
-        dest.WriteBytes (frame.PayloadData.ApplicationData);
+        dest.Write (
+            frame.PayloadData.ApplicationData.Array,
+            frame.PayloadData.ApplicationData.Offset,
+            frame.PayloadData.ApplicationData.Count);
         return concatenateFragmentsInto (dest);
       }
 
       // FINAL & CONT
       if (frame.IsFinal && frame.IsContinuation) {
-        dest.WriteBytes (frame.PayloadData.ApplicationData);
+        dest.Write (
+            frame.PayloadData.ApplicationData.Array,
+            frame.PayloadData.ApplicationData.Offset,
+            frame.PayloadData.ApplicationData.Count);
         return true;
       }
 
@@ -1068,7 +1078,7 @@ namespace WebSocketSharp
           return false;
         }
 
-        return _stream.Write (frame.ToByteArray ());
+        return _stream.Write (frame.ToByteArrayUnsafe());
       }
     }
 
@@ -1086,6 +1096,28 @@ namespace WebSocketSharp
           var mask = Mask.MASK;
           sent = send (
             WsFrame.CreateFrame (Fin.FINAL, opcode, mask, data, compressed));
+        }
+        catch (Exception ex) {
+          _logger.Fatal (ex.ToString ());
+          error ("An exception has occurred while sending a data.", ex);
+        }
+
+        return sent;
+      }
+    }
+
+    private bool send (Opcode opcode, ArraySegment<byte> data)
+    {
+      if (_compression != CompressionMethod.NONE) {
+        return send(opcode, new MemoryStream(data.Array, data.Offset, data.Count));
+      }
+
+      lock (_forSend) {
+        var sent = false;
+        try {
+          var compressed = false;
+          var mask = Mask.MASK;
+          sent = send (WsFrame.CreateFrame (Fin.FINAL, opcode, mask, data, compressed));
         }
         catch (Exception ex) {
           _logger.Fatal (ex.ToString ());
@@ -1251,7 +1283,14 @@ namespace WebSocketSharp
       receive = () => _stream.ReadFrameAsync (
         frame => {
           if (acceptFrame (frame))
+          {
+            if (frame.PayloadData.ApplicationData.Array != null &&
+                frame.PayloadData.ApplicationData.Array.Length == BufferPool.Default.BufferLength)
+            {
+                BufferPool.Default.Return(frame.PayloadData.ApplicationData.Array);
+            }
             receive ();
+          }
           else if (_exitReceiving != null)
             _exitReceiving.Set ();
         },
@@ -1725,15 +1764,17 @@ namespace WebSocketSharp
         return;
       }
 
-      var len = data.LongLength;
-      if (len <= FragmentLength)
-        send (
-          Opcode.BINARY,
-          len > 0 && _compression == CompressionMethod.NONE
-          ? data.Copy (len)
-          : data);
+      if (data.Length < BufferPool.Default.BufferLength)
+      {
+        var buf = BufferPool.Default.Rent();
+        Buffer.BlockCopy(data, 0, buf, 0, data.Length);
+        send (Opcode.BINARY, new ArraySegment<byte>(buf, 0, data.Length));
+        BufferPool.Default.Return(buf);
+      }
       else
+      {
         send (Opcode.BINARY, new MemoryStream (data));
+      }
     }
 
     /// <summary>
@@ -1768,15 +1809,20 @@ namespace WebSocketSharp
       if (msg != null) {
         _logger.Error (msg);
         error (msg);
-
         return;
       }
 
-      var rawData = Encoding.UTF8.GetBytes (data);
-      if (rawData.LongLength <= FragmentLength)
-        send (Opcode.TEXT, rawData);
+      if (data.Length < BufferPool.Default.BufferLength)
+      {
+        var buf = BufferPool.Default.Rent();
+        var size = Encoding.UTF8.GetBytes (data, 0, data.Length, buf, 0);
+        send (Opcode.TEXT, new ArraySegment<byte>(buf, 0, size));
+        BufferPool.Default.Return(buf);
+      }
       else
-        send (Opcode.TEXT, new MemoryStream (rawData));
+      {
+        send (Opcode.TEXT, new MemoryStream (Encoding.UTF8.GetBytes (data)));
+      }
     }
 
     /// <summary>
@@ -1903,40 +1949,26 @@ namespace WebSocketSharp
       if (msg != null) {
         _logger.Error (msg);
         error (msg);
-
         return;
       }
 
-      stream.ReadBytesAsync (
-        length,
-        data => {
-          var len = data.Length;
-          if (len == 0) {
-            msg = "A data cannot be read from 'stream'.";
-            _logger.Error (msg);
-            error (msg);
+      var bytes = stream.ReadBytes (length);
+      var len = bytes.Length;
+      if (len == 0) {
+        msg = "No data could be read from it.";
+        throw new ArgumentException (msg, "stream");
+      }
 
-            return;
-          }
+      if (len < length) {
+        _logger.Warn (
+          String.Format (
+            "Only {0} byte(s) of data could be read from the stream.",
+            len
+          )
+        );
+      }
 
-          if (len < length)
-            _logger.Warn (
-              String.Format (
-                "A data with 'length' cannot be read from 'stream'.\nexpected: {0} actual: {1}",
-                length,
-                len));
-
-          var sent = len <= FragmentLength
-                   ? send (Opcode.BINARY, data)
-                   : send (Opcode.BINARY, new MemoryStream (data));
-
-          if (completed != null)
-            completed (sent);
-        },
-        ex => {
-          _logger.Fatal (ex.ToString ());
-          error ("An exception has occurred while sending a data.", ex);
-        });
+      sendAsync(Opcode.BINARY, bytes, completed);
     }
 
     /// <summary>
